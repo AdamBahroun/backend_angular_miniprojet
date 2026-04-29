@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -25,7 +26,9 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // OAuth2 a besoin de sessions : on passe à IF_REQUIRED
+                .sessionManagement(session -> session
+                        .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(new CorsConfigurationSource() {
                     @Override
@@ -40,7 +43,12 @@ public class SecurityConfig {
                     }
                 }))
                 .authorizeHttpRequests(requests -> requests
-                        .requestMatchers("/login", "/register/**", "/verifyEmail/**").permitAll()
+                        // Routes publiques
+                        .requestMatchers("/login", "/register/**", "/verifyEmail/**", "/error").permitAll()
+                        // Route de test OAuth2 (atelier) — accessible à tout utilisateur authentifié
+                        .requestMatchers(HttpMethod.GET, "/hello").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/me").authenticated()
+                        // Routes existantes protégées par rôles JWT
                         .requestMatchers(HttpMethod.GET, "/marque/**").hasAnyAuthority("ADMIN", "USER")
                         .requestMatchers(HttpMethod.POST, "/marque/**").hasAuthority("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/marque/**").hasAuthority("ADMIN")
@@ -54,8 +62,15 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/rest/**").hasAuthority("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/rest/**").hasAuthority("ADMIN")
                         .anyRequest().authenticated())
+                // Filtres JWT existants
                 .addFilterBefore(new JWTAuthenticationFilter(authMgr), UsernamePasswordAuthenticationFilter.class)
-                .addFilterBefore(new JWTAuthorizationFilter(), UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(new JWTAuthorizationFilter(), UsernamePasswordAuthenticationFilter.class)
+                // OAuth2 GitHub
+                .oauth2Login(Customizer.withDefaults())
+                .logout(logout -> logout
+                        .logoutSuccessUrl("/")
+                        .invalidateHttpSession(true)
+                        .deleteCookies("JSESSIONID"));
 
         return http.build();
     }
